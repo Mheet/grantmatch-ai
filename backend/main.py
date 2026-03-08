@@ -154,3 +154,25 @@ async def list_matches(
     except SQLAlchemyError as exc:
         logger.error("DB error listing matches: %s", exc)
         raise HTTPException(status_code=500, detail="Failed to fetch matches.")
+
+
+# ── Admin: Scrape Trigger ────────────────────────────────────────────────────
+@app.post("/api/admin/scrape", tags=["admin"])
+async def trigger_scrape():
+    """
+    Kick off the full scraping pipeline (Grants.gov + RWJF).
+    Returns a summary with counts of scraped, saved, and errored grants.
+    """
+    from scraper.pipeline import ScrapePipeline
+
+    try:
+        pipeline = ScrapePipeline()
+        summary = await pipeline.run()
+        return summary
+    except Exception as exc:
+        logger.error("Scraping pipeline failed: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Scraping pipeline failed: {exc}",
+        )
+
