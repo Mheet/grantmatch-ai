@@ -1,7 +1,6 @@
 """
 Async SQLAlchemy engine & session factory for Supabase (PostgreSQL + asyncpg).
 """
-
 import os
 from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -13,7 +12,7 @@ DATABASE_URL: str = os.getenv("DATABASE_URL", "")
 if not DATABASE_URL:
     raise RuntimeError(
         "DATABASE_URL is not set. "
-        "Add it to your .env file (postgresql+asyncpg://user:pass@host:port/db?sslmode=require)."
+        "Add it to your .env file (postgresql+asyncpg://user:pass@host:port/db?ssl=require)."
     )
 
 # ── Ensure the URL uses the async driver and Supabase SSL ────────────────────
@@ -22,9 +21,12 @@ if DATABASE_URL.startswith("postgres://"):
 elif DATABASE_URL.startswith("postgresql://"):
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 
-if "sslmode=require" not in DATABASE_URL:
+# asyncpg uses ?ssl=require, NOT ?sslmode=require
+if "sslmode=require" in DATABASE_URL:
+    DATABASE_URL = DATABASE_URL.replace("sslmode=require", "ssl=require")
+elif "ssl=require" not in DATABASE_URL:
     separator = "&" if "?" in DATABASE_URL else "?"
-    DATABASE_URL += f"{separator}sslmode=require"
+    DATABASE_URL += f"{separator}ssl=require"
 
 # ── Engine & Session ─────────────────────────────────────────────────────────
 engine = create_async_engine(
