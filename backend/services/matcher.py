@@ -1,5 +1,5 @@
 """
-Semantic grant-matching engine powered by Anthropic's Claude.
+Semantic grant-matching engine powered by Google Gemini.
 
 Evaluates how well each grant aligns with a nonprofit's mission,
 returning structured scores and reasoning for every pair.
@@ -8,10 +8,11 @@ returning structured scores and reasoning for every pair.
 import asyncio
 import json
 import logging
+import os
 import uuid
 
-import anthropic
-from anthropic import AsyncAnthropic
+from google import genai
+from google.genai import types
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -20,11 +21,10 @@ from backend.models import Grant, GrantMatch, Organization
 
 logger = logging.getLogger(__name__)
 
-# ── Anthropic client with built-in retries ───────────────────────────────────
-client = AsyncAnthropic(max_retries=3)
+# ── Gemini configuration ─────────────────────────────────────────────────────
+client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
-MODEL = "claude-haiku-4-5-20251001"
-
+MODEL = "gemini-2.5-flash"
 # ── Prompt template ──────────────────────────────────────────────────────────
 MATCH_PROMPT = """\
 You are an expert nonprofit grants consultant with 20+ years of experience \
@@ -45,8 +45,7 @@ GRANT OPPORTUNITY:
 - Description: {grant_description}
 
 Return ONLY valid raw JSON with absolutely no markdown formatting, no code \
-fences, no conversational text, and no "```json" blocks — just the raw JSON \
-object and nothing else.
+fences, no conversational text — just the raw JSON object and nothing else.
 
 The JSON object must have exactly these keys:
 {{
@@ -65,7 +64,7 @@ BATCH_SIZE = 5
 # ── Single-pair scoring ─────────────────────────────────────────────────────
 async def score_match(org: dict, grant: dict) -> dict | None:
     """
-    Ask Claude to score how well a grant matches an organization.
+    Ask Gemini to score how well a grant matches an organization.
 
     Returns a validated dict with match_score, reasoning,
     alignment_strengths, concerns, and recommended_action.
@@ -81,20 +80,15 @@ async def score_match(org: dict, grant: dict) -> dict | None:
     )
 
     try:
-        response = await client.messages.create(
+        response = await asyncio.to_thread(
+            client.models.generate_content,
             model=MODEL,
-            max_tokens=512,
-            messages=[{"role": "user", "content": prompt}],
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+            ),
         )
-
-        raw_text = response.content[0].text.strip()
-
-        # Defensive: strip code fences if Claude ignores the instruction
-        if raw_text.startswith("```"):
-            raw_text = raw_text.split("\n", 1)[-1]
-        if raw_text.endswith("```"):
-            raw_text = raw_text.rsplit("```", 1)[0]
-        raw_text = raw_text.strip()
+        raw_text = response.text.strip()
 
         data = json.loads(raw_text)
 
@@ -108,7 +102,7 @@ async def score_match(org: dict, grant: dict) -> dict | None:
         }
         if not REQUIRED_KEYS.issubset(data.keys()):
             missing = REQUIRED_KEYS - data.keys()
-            logger.warning("Claude response missing keys: %s", missing)
+            logger.warning("Gemini response missing keys: %s", missing)
             return None
 
         # Clamp score to [0, 1]
@@ -121,25 +115,9 @@ async def score_match(org: dict, grant: dict) -> dict | None:
 
         return data
 
-    except anthropic.APIError as exc:
-        logger.error(
-            "Anthropic API error scoring '%s' ↔ '%s': %s",
-            org.get("name"),
-            grant.get("title"),
-            exc,
-        )
-        return None
-    except json.JSONDecodeError as exc:
-        logger.error(
-            "JSON parse error for '%s' ↔ '%s': %s",
-            org.get("name"),
-            grant.get("title"),
-            exc,
-        )
-        return None
     except Exception as exc:
         logger.error(
-            "Unexpected error scoring '%s' ↔ '%s': %s",
+            "Error scoring '%s' ↔ '%s': %s",
             org.get("name"),
             grant.get("title"),
             exc,
