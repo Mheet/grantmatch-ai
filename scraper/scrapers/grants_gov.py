@@ -80,7 +80,7 @@ class GrantsGovScraper:
             opportunities = (
                 data.get("oppHits")
                 or data.get("opportunities")
-                or data.get("data", [])
+                or data.get("data", {}).get("oppHits", [])
             )
             if not isinstance(opportunities, list):
                 opportunities = []
