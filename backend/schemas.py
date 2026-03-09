@@ -79,7 +79,23 @@ class GrantMatchOut(BaseModel):
     match_score: float | None = None
     match_reasoning: str | None = None
     status: str
+    generated_loi: str | None = None
     created_at: datetime
+
+
+class MatchWithGrantOut(BaseModel):
+    """Match record with the full nested Grant object."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    organization_id: uuid.UUID
+    grant_id: uuid.UUID
+    match_score: float | None = None
+    match_reasoning: str | None = None
+    status: str
+    generated_loi: str | None = None
+    created_at: datetime
+    grant: GrantOut
 
 
 # ── LOI Draft ────────────────────────────────────────────────────────────────

@@ -100,6 +100,7 @@ class GrantMatch(Base):
     match_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     match_reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(Text, default="new")
+    generated_loi: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow
     )

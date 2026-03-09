@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # ── Gemini configuration ─────────────────────────────────────────────────────
 client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
-MODEL = "gemini-2.5-flash"
+MODEL = "gemini-3-flash-preview"
 # ── Prompt template ──────────────────────────────────────────────────────────
 MATCH_PROMPT = """\
 You are an expert nonprofit grants consultant with 20+ years of experience \
@@ -57,8 +57,10 @@ The JSON object must have exactly these keys:
 }}
 """
 
-# Maximum concurrent API calls per batch
-BATCH_SIZE = 5
+# Rate limiting: 12s between calls keeps us under 5 req/min free tier
+INTER_REQUEST_DELAY = 12
+RETRY_DELAY = 15
+MAX_GRANTS_PER_RUN = 10
 
 
 # ── Single-pair scoring ─────────────────────────────────────────────────────
@@ -79,7 +81,8 @@ async def score_match(org: dict, grant: dict) -> dict | None:
         grant_description=grant.get("description", "")[:2000],
     )
 
-    try:
+    async def _call_gemini() -> str:
+        """Make the Gemini API call and return raw text."""
         response = await asyncio.to_thread(
             client.models.generate_content,
             model=MODEL,
@@ -88,7 +91,25 @@ async def score_match(org: dict, grant: dict) -> dict | None:
                 response_mime_type="application/json",
             ),
         )
-        raw_text = response.text.strip()
+        return response.text.strip()
+
+    try:
+        # First attempt
+        try:
+            raw_text = await _call_gemini()
+        except Exception as first_exc:
+            exc_str = str(first_exc).lower()
+            if "429" in exc_str or "resource_exhausted" in exc_str or "rate" in exc_str:
+                logger.warning(
+                    "Rate limited on '%s' ↔ '%s'. Waiting %ds and retrying...",
+                    org.get("name"),
+                    grant.get("title"),
+                    RETRY_DELAY,
+                )
+                await asyncio.sleep(RETRY_DELAY)
+                raw_text = await _call_gemini()  # Retry once
+            else:
+                raise  # Re-raise non-rate-limit errors
 
         data = json.loads(raw_text)
 
@@ -125,16 +146,19 @@ async def score_match(org: dict, grant: dict) -> dict | None:
         return None
 
 
-# ── Batch runner for a single organization ───────────────────────────────────
+# ── Sequential runner for a single organization ─────────────────────────────
 async def run_matching_for_org(
     org_id: str,
     min_score: float = 0.4,
 ) -> dict:
     """
-    Score every unmatched grant against the given organization.
+    Score unmatched grants against the given organization.
 
-    Processes grants in batches of BATCH_SIZE using asyncio.gather.
-    Saves qualifying matches (>= min_score) to the grant_matches table.
+    Processes grants sequentially (one at a time) with a delay between
+    calls to stay within the Gemini free-tier rate limit (5 req/min).
+    Fetches at most MAX_GRANTS_PER_RUN grants per invocation.
+
+    Uses short-lived DB sessions to avoid Supabase statement timeouts.
 
     Returns:
         {"processed": int, "matched": int, "skipped": int}
@@ -143,8 +167,8 @@ async def run_matching_for_org(
     matched = 0
     skipped = 0
 
+    # ── Session 1: quick read for org + unmatched grants, then close ─────
     async with async_session() as session:
-        # ── Fetch organization ───────────────────────────────────────
         result = await session.execute(
             select(Organization).where(Organization.id == uuid.UUID(org_id))
         )
@@ -158,68 +182,64 @@ async def run_matching_for_org(
             "mission": org_row.mission,
             "focus_areas": org_row.focus_areas or [],
         }
+        org_uuid = org_row.id
 
-        # ── Fetch grants NOT yet matched to this org ─────────────────
         already_matched_sub = (
             select(GrantMatch.grant_id)
-            .where(GrantMatch.organization_id == org_row.id)
+            .where(GrantMatch.organization_id == org_uuid)
         )
         result = await session.execute(
             select(Grant)
             .where(Grant.is_active == True)  # noqa: E712
             .where(Grant.id.notin_(already_matched_sub))
+            .limit(MAX_GRANTS_PER_RUN)
         )
         grants = result.scalars().all()
 
-        if not grants:
-            logger.info("No unmatched grants for org %s.", org_id)
-            return {"processed": 0, "matched": 0, "skipped": 0}
+        # Materialise the data we need so we can close this session
+        grant_data = [
+            {
+                "id": g.id,
+                "title": g.title,
+                "funder": g.funder,
+                "description": g.description,
+            }
+            for g in grants
+        ]
+    # Session 1 is now closed
 
-        logger.info(
-            "Scoring %d unmatched grants for '%s'.", len(grants), org_row.name
-        )
+    if not grant_data:
+        logger.info("No unmatched grants for org %s.", org_id)
+        return {"processed": 0, "matched": 0, "skipped": 0}
 
-        # ── Process in batches ───────────────────────────────────────
-        for i in range(0, len(grants), BATCH_SIZE):
-            batch = grants[i : i + BATCH_SIZE]
+    logger.info(
+        "Scoring %d unmatched grants for '%s' (max %d per run).",
+        len(grant_data),
+        org_dict["name"],
+        MAX_GRANTS_PER_RUN,
+    )
 
-            grant_dicts = [
-                {
-                    "title": g.title,
-                    "funder": g.funder,
-                    "description": g.description,
-                }
-                for g in batch
-            ]
+    # ── Process sequentially with rate limiting ──────────────────────────
+    for g in grant_data:
+        processed += 1
 
-            results = await asyncio.gather(
-                *[score_match(org_dict, gd) for gd in grant_dicts],
-                return_exceptions=True,
-            )
+        grant_dict = {
+            "title": g["title"],
+            "funder": g["funder"],
+            "description": g["description"],
+        }
 
-            for grant_obj, match_result in zip(batch, results):
-                processed += 1
+        match_result = await score_match(org_dict, grant_dict)
 
-                if isinstance(match_result, Exception):
-                    logger.error(
-                        "Exception scoring grant %s: %s",
-                        grant_obj.id,
-                        match_result,
-                    )
-                    skipped += 1
-                    continue
+        if match_result is None:
+            skipped += 1
+        else:
+            score = match_result["match_score"]
 
-                if match_result is None:
-                    skipped += 1
-                    continue
-
-                score = match_result["match_score"]
-
-                if score < min_score:
-                    skipped += 1
-                    continue
-
-                # ── Persist the match ────────────────────────────────
+            if score < min_score:
+                skipped += 1
+            else:
+                # ── Session 2: quick insert, then close ──────────────
                 reasoning_text = (
                     f"{match_result['reasoning']}\n\n"
                     f"Strengths: {', '.join(match_result['alignment_strengths'])}\n"
@@ -227,24 +247,34 @@ async def run_matching_for_org(
                     f"Action: {match_result['recommended_action']}"
                 )
 
-                stmt = (
-                    pg_insert(GrantMatch)
-                    .values(
-                        organization_id=org_row.id,
-                        grant_id=grant_obj.id,
-                        match_score=score,
-                        match_reasoning=reasoning_text,
-                        status="new",
+                async with async_session() as write_session:
+                    stmt = (
+                        pg_insert(GrantMatch)
+                        .values(
+                            organization_id=org_uuid,
+                            grant_id=g["id"],
+                            match_score=score,
+                            match_reasoning=reasoning_text,
+                            status="new",
+                        )
+                        .on_conflict_do_nothing(
+                            index_elements=["organization_id", "grant_id"],
+                        )
                     )
-                    .on_conflict_do_nothing(
-                        constraint="uq_org_grant",
-                    )
-                )
-                await session.execute(stmt)
+                    await write_session.execute(stmt)
+                    await write_session.commit()
                 matched += 1
 
-        await session.commit()
+        logger.info(
+            "[%d/%d] Scored '%s' — waiting %ds for rate limit...",
+            processed,
+            len(grant_data),
+            g["title"][:50],
+            INTER_REQUEST_DELAY,
+        )
+        await asyncio.sleep(INTER_REQUEST_DELAY)
 
     summary = {"processed": processed, "matched": matched, "skipped": skipped}
     logger.info("Matching complete for org %s: %s", org_id, summary)
     return summary
+

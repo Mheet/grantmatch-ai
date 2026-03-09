@@ -10,6 +10,7 @@ import logging
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +19,7 @@ from backend.models import Grant, GrantMatch, Organization
 from backend.schemas import (
     GrantMatchOut,
     GrantOut,
+    MatchWithGrantOut,
     OrganizationCreate,
     OrganizationOut,
 )
@@ -176,3 +178,131 @@ async def trigger_scrape():
             detail=f"Scraping pipeline failed: {exc}",
         )
 
+
+# ── Match Generation ─────────────────────────────────────────────────────────
+@app.post("/api/matches/generate/{org_id}", tags=["matches"])
+async def generate_matches(org_id: str):
+    """
+    Trigger Gemini-powered semantic matching for all unmatched grants
+    against the specified organization.
+    """
+    from backend.services.matcher import run_matching_for_org
+
+    try:
+        summary = await run_matching_for_org(org_id)
+        return summary
+    except Exception as exc:
+        logger.error("Match generation failed for org %s: %s", org_id, exc)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Match generation failed: {exc}",
+        )
+
+
+# ── Matches for an Organization ──────────────────────────────────────────────
+@app.get(
+    "/api/matches/{org_id}",
+    response_model=list[MatchWithGrantOut],
+    tags=["matches"],
+)
+async def get_org_matches(
+    org_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return all matches for an organization, sorted by score descending, with full grant details."""
+    try:
+        result = await db.execute(
+            select(GrantMatch)
+            .where(GrantMatch.organization_id == org_id)
+            .options(selectinload(GrantMatch.grant))
+            .order_by(GrantMatch.match_score.desc())
+        )
+        return result.scalars().all()
+    except SQLAlchemyError as exc:
+        logger.error("DB error fetching matches for org %s: %s", org_id, exc)
+        raise HTTPException(status_code=500, detail="Failed to fetch matches.")
+
+
+# ── LOI Generation ───────────────────────────────────────────────────────────
+@app.post("/api/loi/generate/{match_id}", tags=["loi"])
+async def generate_loi_endpoint(
+    match_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate a Letter of Intent for a specific grant match."""
+    from backend.services.writer import generate_loi
+    import json as _json
+
+    try:
+        # ── Fetch match ──────────────────────────────────────────────
+        result = await db.execute(
+            select(GrantMatch).where(GrantMatch.id == match_id)
+        )
+        match = result.scalars().first()
+        if not match:
+            raise HTTPException(status_code=404, detail="Match not found.")
+
+        # ── Fetch related org & grant ────────────────────────────────
+        org_result = await db.execute(
+            select(Organization).where(Organization.id == match.organization_id)
+        )
+        org = org_result.scalars().first()
+        if not org:
+            raise HTTPException(status_code=404, detail="Organization not found.")
+
+        grant_result = await db.execute(
+            select(Grant).where(Grant.id == match.grant_id)
+        )
+        grant = grant_result.scalars().first()
+        if not grant:
+            raise HTTPException(status_code=404, detail="Grant not found.")
+
+        # ── Build dicts for the LOI writer ───────────────────────────
+        org_dict = {
+            "name": org.name,
+            "mission": org.mission,
+            "focus_areas": org.focus_areas or [],
+            "location": org.location or "United States",
+            "budget_range": org.budget_range or "Not specified",
+        }
+
+        grant_dict = {
+            "title": grant.title,
+            "funder": grant.funder,
+            "description": grant.description,
+            "deadline": grant.deadline,
+            "max_amount": float(grant.max_amount) if grant.max_amount else None,
+        }
+
+        # ── Parse match_reasoning (could be JSON string or plain text) ──
+        match_reasoning_dict = {
+            "reasoning": "",
+            "alignment_strengths": [],
+            "concerns": [],
+        }
+        if match.match_reasoning:
+            try:
+                parsed = _json.loads(match.match_reasoning)
+                if isinstance(parsed, dict):
+                    match_reasoning_dict = parsed
+            except (_json.JSONDecodeError, TypeError):
+                # Plain text reasoning — extract what we can
+                match_reasoning_dict["reasoning"] = match.match_reasoning
+
+        # ── Generate LOI ─────────────────────────────────────────────
+        loi_text = await generate_loi(org_dict, grant_dict, match_reasoning_dict)
+
+        # ── Save to DB ───────────────────────────────────────────────
+        match.generated_loi = loi_text
+        await db.commit()
+
+        return {"loi": loi_text}
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("LOI generation failed for match %s: %s", match_id, exc)
+        raise HTTPException(
+            status_code=500,
+            detail=f"LOI generation failed: {exc}",
+        )
