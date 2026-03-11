@@ -7,7 +7,7 @@ All endpoints perform real async CRUD against Supabase via SQLAlchemy 2.0.
 import uuid
 import logging
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -95,6 +95,47 @@ async def list_organizations(
     except SQLAlchemyError as exc:
         logger.error("DB error listing organizations: %s", exc)
         raise HTTPException(status_code=500, detail="Failed to fetch organizations.")
+
+
+@app.get(
+    "/api/organizations/me",
+    response_model=OrganizationOut,
+    tags=["organizations"],
+)
+async def get_my_organization(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Look up the organization belonging to the authenticated Supabase user."""
+    import jwt as pyjwt
+
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing auth token.")
+
+    token = auth_header.split(" ", 1)[1]
+    try:
+        payload = pyjwt.decode(token, options={"verify_signature": False})
+        user_id = payload.get("sub")
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid token.")
+
+    if not user_id:
+        raise HTTPException(status_code=401, detail="No user ID in token.")
+
+    try:
+        result = await db.execute(
+            select(Organization).where(Organization.user_id == user_id)
+        )
+        org = result.scalars().first()
+        if not org:
+            raise HTTPException(status_code=404, detail="Organization not found.")
+        return org
+    except HTTPException:
+        raise
+    except SQLAlchemyError as exc:
+        logger.error("DB error fetching org for user %s: %s", user_id, exc)
+        raise HTTPException(status_code=500, detail="Failed to fetch organization.")
 
 
 @app.get(

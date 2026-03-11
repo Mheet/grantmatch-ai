@@ -36,6 +36,7 @@ class Organization(Base):
     focus_areas = mapped_column(ARRAY(Text), nullable=True)
     location: Mapped[str | None] = mapped_column(Text, nullable=True)
     budget_range: Mapped[str | None] = mapped_column(Text, nullable=True)
+    user_id: Mapped[str | None] = mapped_column(Text, nullable=True, index=True)
     past_funders = mapped_column(ARRAY(Text), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow

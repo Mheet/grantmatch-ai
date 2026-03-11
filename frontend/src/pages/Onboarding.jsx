@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { orgApi } from "../api";
+import { supabase } from "../supabase";
 import Button  from "../components/ui/Button";
 import Card    from "../components/ui/Card";
 
@@ -36,6 +37,14 @@ export default function Onboarding() {
 
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState(null);
+  const [userId, setUserId]     = useState(null);
+
+  // Get current Supabase user on mount
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data?.user) setUserId(data.user.id);
+    });
+  }, []);
 
   // ── helpers ─────────────────────────────────────────────────────────────
   const update = (field) => (e) =>
@@ -56,11 +65,16 @@ export default function Onboarding() {
     setLoading(true);
 
     try {
+      // Fetch user_id at submit time to avoid race condition with useEffect
+      const { data: userData } = await supabase.auth.getUser();
+      const currentUserId = userData?.user?.id || userId || null;
+
       const data = await orgApi.create({
         ...form,
         focus_areas: form.focus_areas.length > 0 ? form.focus_areas : null,
         budget_range: form.budget_range || null,
         location: form.location || null,
+        user_id: currentUserId,
       });
       localStorage.setItem("org_id", data.id);
       navigate("/dashboard");

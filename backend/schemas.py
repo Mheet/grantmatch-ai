@@ -17,6 +17,7 @@ class OrganizationCreate(BaseModel):
     focus_areas: list[str] | None = None
     location: str | None = None
     budget_range: str | None = None
+    user_id: str | None = None
     past_funders: list[str] | None = None
 
 
@@ -29,6 +30,7 @@ class OrganizationOut(BaseModel):
     focus_areas: list[str] | None = None
     location: str | None = None
     budget_range: str | None = None
+    user_id: str | None = None
     past_funders: list[str] | None = None
     created_at: datetime
 

@@ -1,15 +1,17 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { User, LogOut } from "lucide-react";
+import { signOut } from "../../supabase";
 
 export default function Navbar({ orgName }) {
   const navigate = useNavigate();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef(null);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await signOut();
     localStorage.removeItem("org_id");
-    navigate("/setup");
+    navigate("/auth");
   };
 
   // Close dropdown on outside click
