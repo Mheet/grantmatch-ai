@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { AlertCircle, Search } from "lucide-react";
+import { AlertCircle, Sparkles, ArrowRight } from "lucide-react";
 
 import { orgApi, matchesApi, loiApi } from "../api";
 import Navbar    from "../components/layout/Navbar";
@@ -106,18 +106,25 @@ export default function GrantsList() {
 
         {/* Empty state */}
         {!isError && matches?.length === 0 && (
-          <Card className="text-center py-12">
-            <Search className="h-10 w-10 text-slate-400 mx-auto mb-3" />
-            <p className="text-navy-700 font-medium">
-              No matches found yet.
+          <div className="flex flex-col items-center justify-center text-center py-24 px-4 bg-gradient-to-br from-emerald-50 to-white rounded-2xl border border-emerald-100 mt-8">
+            <div className="bg-white shadow-sm p-6 rounded-full mb-6">
+              <Sparkles className="w-12 h-12 text-emerald-500" />
+            </div>
+            <h2 className="text-2xl font-bold text-slate-900 mb-2">
+              No Grant Matches Yet
+            </h2>
+            <p className="text-slate-500 max-w-md mx-auto mb-8 leading-relaxed">
+              Run the AI matching engine to discover grants tailored to your
+              mission.
             </p>
-            <p className="text-sm text-slate-500 mt-1 mb-5">
-              Run the AI engine to discover grants aligned with your mission.
-            </p>
-            <Link to="/dashboard">
-              <Button variant="primary">Go to Dashboard</Button>
-            </Link>
-          </Card>
+            <Button
+              variant="primary"
+              onClick={() => navigate("/dashboard")}
+            >
+              Go to Dashboard
+              <ArrowRight className="h-4 w-4" />
+            </Button>
+          </div>
         )}
 
         {/* Match feed */}
