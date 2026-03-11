@@ -1,5 +1,5 @@
 """
-Semantic grant-matching engine powered by Google Gemini.
+Semantic grant-matching engine powered by Groq (LLaMA 3.3 70B).
 
 Evaluates how well each grant aligns with a nonprofit's mission,
 returning structured scores and reasoning for every pair.
@@ -11,8 +11,7 @@ import logging
 import os
 import uuid
 
-from google import genai
-from google.genai import types
+from groq import Groq
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -21,10 +20,10 @@ from backend.models import Grant, GrantMatch, Organization
 
 logger = logging.getLogger(__name__)
 
-# ── Gemini configuration ─────────────────────────────────────────────────────
-client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+# ── Groq configuration ──────────────────────────────────────────────────────
+client = Groq(api_key=os.environ["GROQ_API_KEY"])
 
-MODEL = "gemini-3-flash-preview"
+MODEL = "llama-3.3-70b-versatile"
 # ── Prompt template ──────────────────────────────────────────────────────────
 MATCH_PROMPT = """\
 You are an expert nonprofit grants consultant with 20+ years of experience \
@@ -57,16 +56,16 @@ The JSON object must have exactly these keys:
 }}
 """
 
-# Rate limiting: 12s between calls keeps us under 5 req/min free tier
-INTER_REQUEST_DELAY = 12
+# Rate limiting: Groq allows 30 RPM — much faster than Gemini's 5 RPM
+INTER_REQUEST_DELAY = 2
 RETRY_DELAY = 15
-MAX_GRANTS_PER_RUN = 10
+MAX_GRANTS_PER_RUN = 25
 
 
 # ── Single-pair scoring ─────────────────────────────────────────────────────
 async def score_match(org: dict, grant: dict) -> dict | None:
     """
-    Ask Gemini to score how well a grant matches an organization.
+    Ask Groq (LLaMA 3.3 70B) to score how well a grant matches an organization.
 
     Returns a validated dict with match_score, reasoning,
     alignment_strengths, concerns, and recommended_action.
@@ -81,22 +80,20 @@ async def score_match(org: dict, grant: dict) -> dict | None:
         grant_description=grant.get("description", "")[:2000],
     )
 
-    async def _call_gemini() -> str:
-        """Make the Gemini API call and return raw text."""
+    async def _call_groq() -> str:
+        """Make the Groq API call and return raw text."""
         response = await asyncio.to_thread(
-            client.models.generate_content,
+            client.chat.completions.create,
             model=MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-            ),
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
         )
-        return response.text.strip()
+        return response.choices[0].message.content.strip()
 
     try:
         # First attempt
         try:
-            raw_text = await _call_gemini()
+            raw_text = await _call_groq()
         except Exception as first_exc:
             exc_str = str(first_exc).lower()
             if "429" in exc_str or "resource_exhausted" in exc_str or "rate" in exc_str:
@@ -107,7 +104,7 @@ async def score_match(org: dict, grant: dict) -> dict | None:
                     RETRY_DELAY,
                 )
                 await asyncio.sleep(RETRY_DELAY)
-                raw_text = await _call_gemini()  # Retry once
+                raw_text = await _call_groq()  # Retry once
             else:
                 raise  # Re-raise non-rate-limit errors
 
@@ -123,7 +120,7 @@ async def score_match(org: dict, grant: dict) -> dict | None:
         }
         if not REQUIRED_KEYS.issubset(data.keys()):
             missing = REQUIRED_KEYS - data.keys()
-            logger.warning("Gemini response missing keys: %s", missing)
+            logger.warning("Groq response missing keys: %s", missing)
             return None
 
         # Clamp score to [0, 1]
@@ -155,7 +152,7 @@ async def run_matching_for_org(
     Score unmatched grants against the given organization.
 
     Processes grants sequentially (one at a time) with a delay between
-    calls to stay within the Gemini free-tier rate limit (5 req/min).
+    calls to stay within the Groq rate limit (30 req/min).
     Fetches at most MAX_GRANTS_PER_RUN grants per invocation.
 
     Uses short-lived DB sessions to avoid Supabase statement timeouts.
