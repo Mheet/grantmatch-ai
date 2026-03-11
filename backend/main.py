@@ -4,6 +4,7 @@ CORS is configured for local React (Vite) development.
 All endpoints perform real async CRUD against Supabase via SQLAlchemy 2.0.
 """
 
+import os
 import uuid
 import logging
 
@@ -33,12 +34,15 @@ app = FastAPI(
 )
 
 # ── CORS ─────────────────────────────────────────────────────────────────────
+allowed_origins = [
+    "http://localhost:5173",
+    "http://localhost:3000",
+    os.getenv("FRONTEND_URL", "https://grantmatch-ai.vercel.app"),
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:5173",
-    ],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
