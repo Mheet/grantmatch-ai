@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { AlertCircle, Sparkles, ArrowRight } from "lucide-react";
+import { Sparkles, ArrowRight } from "lucide-react";
 
 import { orgApi, matchesApi, loiApi } from "../api";
 import Navbar    from "../components/layout/Navbar";
@@ -9,12 +9,14 @@ import Button    from "../components/ui/Button";
 import Card      from "../components/ui/Card";
 import Spinner   from "../components/ui/Spinner";
 import GrantCard from "../components/ui/GrantCard";
+import useToast  from "../hooks/useToast.jsx";
 
 export default function GrantsList() {
   const navigate = useNavigate();
   const orgId = localStorage.getItem("org_id");
 
   const [currentMatchId, setCurrentMatchId] = useState(null);
+  const { showToast, ToastComponent } = useToast();
 
   // ── Auth gate ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -47,6 +49,7 @@ export default function GrantsList() {
     },
     onError: () => {
       setCurrentMatchId(null);
+      showToast("Failed to draft LOI. Please try again.", "error");
     },
   });
 
@@ -71,25 +74,12 @@ export default function GrantsList() {
 
   // ── Render ────────────────────────────────────────────────────────────
   return (
+    <>
     <div className="min-h-screen bg-slate-50">
       <Navbar orgName={org?.name} />
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-        {/* Error banner (LOI generation failure) */}
-        {loiMutation.isError && (
-          <div className="mb-6 rounded-lg bg-red-50 border border-red-200 px-5 py-4 flex items-center gap-3">
-            <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0" />
-            <div>
-              <p className="text-sm font-semibold text-red-800">
-                LOI generation failed
-              </p>
-              <p className="text-sm text-red-700">
-                {loiMutation.error?.response?.data?.detail ||
-                  "An unexpected error occurred. Please try again."}
-              </p>
-            </div>
-          </div>
-        )}
+
 
         {/* Data fetch error */}
         {isError && (
@@ -156,5 +146,7 @@ export default function GrantsList() {
         )}
       </main>
     </div>
+    {ToastComponent}
+    </>
   );
 }

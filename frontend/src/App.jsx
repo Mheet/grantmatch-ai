@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { supabase } from "./supabase";
 import Spinner from "./components/ui/Spinner";
+import ErrorBoundary from "./components/ui/ErrorBoundary";
 
 import Auth       from "./pages/Auth";
 import Onboarding from "./pages/Onboarding";
@@ -51,6 +52,7 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
+        <ErrorBoundary>
         <Routes>
           <Route path="/"          element={<Navigate to="/auth" replace />} />
           <Route path="/auth"      element={<Auth />} />
@@ -68,6 +70,7 @@ export default function App() {
             element={<ProtectedRoute><LoiView /></ProtectedRoute>}
           />
         </Routes>
+        </ErrorBoundary>
       </BrowserRouter>
     </QueryClientProvider>
   );

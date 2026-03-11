@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Sparkles, ArrowRight, AlertCircle } from "lucide-react";
+import { Sparkles, ArrowRight } from "lucide-react";
 
 import { orgApi, matchesApi } from "../api";
 import Navbar  from "../components/layout/Navbar";
@@ -9,6 +9,7 @@ import Button  from "../components/ui/Button";
 import Card    from "../components/ui/Card";
 import Spinner from "../components/ui/Spinner";
 import Badge   from "../components/ui/Badge";
+import useToast from "../hooks/useToast.jsx";
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -30,9 +31,20 @@ export default function Dashboard() {
     enabled: !!orgId,
   });
 
+  const { showToast, ToastComponent } = useToast();
+
   // ── Matching mutation ─────────────────────────────────────────────────
   const matching = useMutation({
     mutationFn: () => matchesApi.generate(orgId),
+    onSuccess: (data) => {
+      showToast(
+        `Matching complete! ${data.matched} matches found from ${data.processed} grants.`,
+        "success"
+      );
+    },
+    onError: () => {
+      showToast("Failed to match grants. Please try again.", "error");
+    },
   });
 
   // ── Loading state ─────────────────────────────────────────────────────
@@ -60,6 +72,7 @@ export default function Dashboard() {
 
   // ── Render ────────────────────────────────────────────────────────────
   return (
+    <>
     <div className="min-h-screen bg-slate-50">
       <Navbar orgName={org?.name} />
 
@@ -74,21 +87,14 @@ export default function Dashboard() {
           </p>
         </div>
 
-        {/* Success Banner */}
+        {/* Success — View Results link */}
         {matching.isSuccess && (
           <div className="mb-6 rounded-lg bg-emerald-50 border border-emerald-200 px-5 py-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <Sparkles className="h-5 w-5 text-emerald-600 flex-shrink-0" />
-              <div>
-                <p className="text-sm font-semibold text-emerald-800">
-                  Matching complete!
-                </p>
-                <p className="text-sm text-emerald-700">
-                  Processed {matching.data.processed} grants —{" "}
-                  <span className="font-bold">{matching.data.matched}</span>{" "}
-                  matches found.
-                </p>
-              </div>
+              <p className="text-sm font-semibold text-emerald-800">
+                Matching complete — {matching.data.matched} matches found.
+              </p>
             </div>
             <Link
               to="/grants"
@@ -96,22 +102,6 @@ export default function Dashboard() {
             >
               View results <ArrowRight className="h-4 w-4" />
             </Link>
-          </div>
-        )}
-
-        {/* Error Banner */}
-        {matching.isError && (
-          <div className="mb-6 rounded-lg bg-red-50 border border-red-200 px-5 py-4 flex items-center gap-3">
-            <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0" />
-            <div>
-              <p className="text-sm font-semibold text-red-800">
-                Matching failed
-              </p>
-              <p className="text-sm text-red-700">
-                {matching.error?.response?.data?.detail ||
-                  "An unexpected error occurred. Please try again."}
-              </p>
-            </div>
           </div>
         )}
 
@@ -179,5 +169,7 @@ export default function Dashboard() {
         </div>
       </main>
     </div>
+    {ToastComponent}
+    </>
   );
 }
