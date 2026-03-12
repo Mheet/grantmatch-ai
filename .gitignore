@@ -16,4 +16,5 @@ Thumbs.db
 .idea/
 
 # logs
-*.log
+*.log.env 
+frontend/.env 
