@@ -59,7 +59,7 @@ The JSON object must have exactly these keys:
 # Rate limiting: Groq allows 30 RPM — much faster than Gemini's 5 RPM
 INTER_REQUEST_DELAY = 2
 RETRY_DELAY = 15
-MAX_GRANTS_PER_RUN = 25
+MAX_GRANTS_PER_RUN = 10
 
 
 # ── Single-pair scoring ─────────────────────────────────────────────────────
@@ -146,7 +146,7 @@ async def score_match(org: dict, grant: dict) -> dict | None:
 # ── Sequential runner for a single organization ─────────────────────────────
 async def run_matching_for_org(
     org_id: str,
-    min_score: float = 0.4,
+    min_score: float = 0.6,
 ) -> dict:
     """
     Score unmatched grants against the given organization.
