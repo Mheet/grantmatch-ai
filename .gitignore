@@ -1,20 +1,56 @@
-# environment variables
+# =========================
+
+# Environment Variables
+
+# =========================
+
 .env
 .env.*
+frontend/.env
 
-# python
+# =========================
+
+# Python
+
+# =========================
+
 venv/
-__pycache__/
+**pycache**/
 *.pyc
+.pyre/
+.pyre_configuration
 
-# OS
+# =========================
+
+# Node / Frontend
+
+# =========================
+
+node_modules/
+frontend/dist/
+
+# =========================
+
+# Logs
+
+# =========================
+
+*.log
+
+# =========================
+
+# OS Files
+
+# =========================
+
 .DS_Store
 Thumbs.db
 
-# editor
+# =========================
+
+# Editor / IDE
+
+# =========================
+
 .vscode/
 .idea/
-
-# logs
-*.log.env 
-frontend/.env 

@@ -160,9 +160,9 @@ async def run_matching_for_org(
     Returns:
         {"processed": int, "matched": int, "skipped": int}
     """
-    processed = 0
-    matched = 0
-    skipped = 0
+    processed: int = 0
+    matched: int = 0
+    skipped: int = 0
 
     # ── Session 1: quick read for org + unmatched grants, then close ─────
     async with async_session() as session:
@@ -218,7 +218,7 @@ async def run_matching_for_org(
 
     # ── Process sequentially with rate limiting ──────────────────────────
     for g in grant_data:
-        processed += 1
+        processed = int(processed) + 1
 
         grant_dict = {
             "title": g["title"],
@@ -229,12 +229,12 @@ async def run_matching_for_org(
         match_result = await score_match(org_dict, grant_dict)
 
         if match_result is None:
-            skipped += 1
+            skipped = int(skipped) + 1
         else:
             score = match_result["match_score"]
 
             if score < min_score:
-                skipped += 1
+                skipped = int(skipped) + 1
             else:
                 # ── Session 2: quick insert, then close ──────────────
                 reasoning_text = (
@@ -260,7 +260,7 @@ async def run_matching_for_org(
                     )
                     await write_session.execute(stmt)
                     await write_session.commit()
-                matched += 1
+                matched = int(matched) + 1
 
         logger.info(
             "[%d/%d] Scored '%s' — waiting %ds for rate limit...",

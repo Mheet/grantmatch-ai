@@ -45,3 +45,5 @@ async def upsert_grant(grant_data: dict) -> bool:
             await session.rollback()
             logger.error("Failed to upsert grant '%s': %s", grant_data.get("title"), exc)
             return False
+
+    return False

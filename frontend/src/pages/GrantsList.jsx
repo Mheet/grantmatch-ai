@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Sparkles, ArrowRight } from "lucide-react";
 
 import { orgApi, matchesApi, loiApi } from "../api";
@@ -14,6 +14,7 @@ import useToast  from "../hooks/useToast.jsx";
 export default function GrantsList() {
   const navigate = useNavigate();
   const orgId = localStorage.getItem("org_id");
+  const queryClient = useQueryClient();
 
   const [currentMatchId, setCurrentMatchId] = useState(null);
   const { showToast, ToastComponent } = useToast();
@@ -44,8 +45,10 @@ export default function GrantsList() {
   // ── LOI mutation ──────────────────────────────────────────────────────
   const loiMutation = useMutation({
     mutationFn: (matchId) => loiApi.generate(matchId),
-    onSuccess: () => {
-      navigate(`/loi/${currentMatchId}`);
+    onSuccess: (_data, matchId) => {
+      // Invalidate cache so LoiView fetches fresh data with generated_loi
+      queryClient.invalidateQueries({ queryKey: ["matches", orgId] });
+      navigate(`/loi/${matchId}`);
     },
     onError: () => {
       setCurrentMatchId(null);

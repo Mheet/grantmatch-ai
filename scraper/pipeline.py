@@ -41,9 +41,9 @@ class ScrapePipeline:
         Returns:
             {"scraped": int, "saved": int, "errors": int}
         """
-        scraped = 0
-        saved = 0
-        errors = 0
+        scraped: int = 0
+        saved: int = 0
+        errors: int = 0
 
         # ── Run scrapers concurrently ────────────────────────────────
         grants_gov = GrantsGovScraper()
@@ -63,7 +63,7 @@ class ScrapePipeline:
                 logger.error(
                     "%s scraper raised an exception: %s", scraper_name, result
                 )
-                errors += 1
+                errors = int(errors) + 1
                 continue
             if isinstance(result, list):
                 logger.info(
@@ -87,10 +87,10 @@ class ScrapePipeline:
 
                 inserted = await upsert_grant(grant)
                 if inserted:
-                    saved += 1
+                    saved = int(saved) + 1
             except Exception as exc:
                 logger.error("Error upserting grant '%s': %s", grant.get("title"), exc)
-                errors += 1
+                errors = int(errors) + 1
 
         summary = {"scraped": scraped, "saved": saved, "errors": errors}
         logger.info("Pipeline complete: %s", summary)

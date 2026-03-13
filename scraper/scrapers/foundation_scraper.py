@@ -324,7 +324,7 @@ class RWJFScraper:
         # Strip common prefixes like "Deadline: "
         for prefix in ("Deadline:", "Due:", "Closes:", "Due by"):
             if raw.lower().startswith(prefix.lower()):
-                raw = raw[len(prefix):].strip()
+                raw = raw[len(prefix) : len(raw)].strip()
 
         for fmt in (
             "%B %d, %Y",        # January 15, 2025

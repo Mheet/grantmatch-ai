@@ -3,6 +3,7 @@ Async SQLAlchemy engine & session factory for Supabase (PostgreSQL + asyncpg).
 """
 import os
 from dotenv import load_dotenv
+from collections.abc import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 load_dotenv()
@@ -45,7 +46,7 @@ async_session = async_sessionmaker(
 )
 
 
-async def get_db() -> AsyncSession:
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """FastAPI dependency — yields an async database session."""
     async with async_session() as session:
         try:

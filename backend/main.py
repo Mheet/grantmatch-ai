@@ -270,76 +270,77 @@ async def get_org_matches(
 
 # ── LOI Generation ───────────────────────────────────────────────────────────
 @app.post("/api/loi/generate/{match_id}", tags=["loi"])
-async def generate_loi_endpoint(
-    match_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-):
+async def generate_loi_endpoint(match_id: uuid.UUID):
     """Generate a Letter of Intent for a specific grant match."""
     from backend.services.writer import generate_loi
+    from backend.database import async_session
     import json as _json
 
     try:
-        # ── Fetch match ──────────────────────────────────────────────
-        result = await db.execute(
-            select(GrantMatch).where(GrantMatch.id == match_id)
-        )
-        match = result.scalars().first()
-        if not match:
-            raise HTTPException(status_code=404, detail="Match not found.")
+        # ── Session 1: Fetch data (short-lived) ─────────────────────────
+        async with async_session() as db:
+            result = await db.execute(
+                select(GrantMatch).where(GrantMatch.id == match_id)
+            )
+            match = result.scalars().first()
+            if not match:
+                raise HTTPException(status_code=404, detail="Match not found.")
 
-        # ── Fetch related org & grant ────────────────────────────────
-        org_result = await db.execute(
-            select(Organization).where(Organization.id == match.organization_id)
-        )
-        org = org_result.scalars().first()
-        if not org:
-            raise HTTPException(status_code=404, detail="Organization not found.")
+            org_result = await db.execute(
+                select(Organization).where(Organization.id == match.organization_id)
+            )
+            org = org_result.scalars().first()
+            if not org:
+                raise HTTPException(status_code=404, detail="Organization not found.")
 
-        grant_result = await db.execute(
-            select(Grant).where(Grant.id == match.grant_id)
-        )
-        grant = grant_result.scalars().first()
-        if not grant:
-            raise HTTPException(status_code=404, detail="Grant not found.")
+            grant_result = await db.execute(
+                select(Grant).where(Grant.id == match.grant_id)
+            )
+            grant = grant_result.scalars().first()
+            if not grant:
+                raise HTTPException(status_code=404, detail="Grant not found.")
 
-        # ── Build dicts for the LOI writer ───────────────────────────
-        org_dict = {
-            "name": org.name,
-            "mission": org.mission,
-            "focus_areas": org.focus_areas or [],
-            "location": org.location or "United States",
-            "budget_range": org.budget_range or "Not specified",
-        }
+            # Build plain dicts before session closes
+            org_dict = {
+                "name": org.name,
+                "mission": org.mission,
+                "focus_areas": org.focus_areas or [],
+                "location": org.location or "United States",
+                "budget_range": org.budget_range or "Not specified",
+            }
 
-        grant_dict = {
-            "title": grant.title,
-            "funder": grant.funder,
-            "description": grant.description,
-            "deadline": grant.deadline,
-            "max_amount": float(grant.max_amount) if grant.max_amount else None,
-        }
+            grant_dict = {
+                "title": grant.title,
+                "funder": grant.funder,
+                "description": grant.description,
+                "deadline": grant.deadline,
+                "max_amount": float(grant.max_amount) if grant.max_amount else None,
+            }
 
-        # ── Parse match_reasoning (could be JSON string or plain text) ──
-        match_reasoning_dict = {
-            "reasoning": "",
-            "alignment_strengths": [],
-            "concerns": [],
-        }
-        if match.match_reasoning:
-            try:
-                parsed = _json.loads(match.match_reasoning)
-                if isinstance(parsed, dict):
-                    match_reasoning_dict = parsed
-            except (_json.JSONDecodeError, TypeError):
-                # Plain text reasoning — extract what we can
-                match_reasoning_dict["reasoning"] = match.match_reasoning
+            match_reasoning_dict = {
+                "reasoning": "",
+                "alignment_strengths": [],
+                "concerns": [],
+            }
+            if match.match_reasoning:
+                try:
+                    parsed = _json.loads(match.match_reasoning)
+                    if isinstance(parsed, dict):
+                        match_reasoning_dict = parsed
+                except (_json.JSONDecodeError, TypeError):
+                    match_reasoning_dict["reasoning"] = match.match_reasoning
 
-        # ── Generate LOI ─────────────────────────────────────────────
+        # ── Groq API call (NO DB session held) ───────────────────────────
         loi_text = await generate_loi(org_dict, grant_dict, match_reasoning_dict)
 
-        # ── Save to DB ───────────────────────────────────────────────
-        match.generated_loi = loi_text
-        await db.commit()
+        # ── Session 2: Save result (short-lived) ────────────────────────
+        async with async_session() as db:
+            result = await db.execute(
+                select(GrantMatch).where(GrantMatch.id == match_id)
+            )
+            match = result.scalars().first()
+            match.generated_loi = loi_text
+            await db.commit()
 
         return {"loi": loi_text}
 
@@ -351,3 +352,4 @@ async def generate_loi_endpoint(
             status_code=500,
             detail=f"LOI generation failed: {exc}",
         )
+
