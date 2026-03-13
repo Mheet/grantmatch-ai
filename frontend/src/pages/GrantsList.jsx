@@ -97,7 +97,7 @@ export default function GrantsList() {
           </Card>
         )}
 
-        {/* Empty state */}
+        {/* Smart empty state — explains why 0 matches */}
         {!isError && matches?.length === 0 && (
           <div className="flex flex-col items-center justify-center text-center py-24 px-4 bg-gradient-to-br from-emerald-50 to-white rounded-2xl border border-emerald-100 mt-8">
             <div className="bg-white shadow-sm p-6 rounded-full mb-6">
@@ -106,17 +106,30 @@ export default function GrantsList() {
             <h2 className="text-2xl font-bold text-slate-900 mb-2">
               No Grant Matches Yet
             </h2>
-            <p className="text-slate-500 max-w-md mx-auto mb-8 leading-relaxed">
-              Run the AI matching engine to discover grants tailored to your
-              mission.
+            <p className="text-slate-500 max-w-lg mx-auto mb-3 leading-relaxed">
+              The AI couldn't find strong matches above the 60% alignment
+              threshold. This usually means your profile needs more detail.
             </p>
-            <Button
-              variant="primary"
-              onClick={() => navigate("/dashboard")}
-            >
-              Go to Dashboard
-              <ArrowRight className="h-4 w-4" />
-            </Button>
+            <div className="text-sm text-slate-400 max-w-md mx-auto mb-8 space-y-1">
+              <p>💡 Try adding more <strong>focus areas</strong> to your profile</p>
+              <p>💡 Make your <strong>mission statement</strong> more specific</p>
+              <p>💡 Run matching again after new grants are scraped</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <Button
+                variant="primary"
+                onClick={() => navigate("/dashboard")}
+              >
+                Go to Dashboard
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => navigate("/setup")}
+              >
+                Edit Profile
+              </Button>
+            </div>
           </div>
         )}
 

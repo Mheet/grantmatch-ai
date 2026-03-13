@@ -1,7 +1,7 @@
-import { useEffect } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Sparkles, ArrowRight } from "lucide-react";
+import { Sparkles, ArrowRight, Zap, Clock } from "lucide-react";
 
 import { orgApi, matchesApi } from "../api";
 import Navbar  from "../components/layout/Navbar";
@@ -10,6 +10,8 @@ import Card    from "../components/ui/Card";
 import Spinner from "../components/ui/Spinner";
 import Badge   from "../components/ui/Badge";
 import useToast from "../hooks/useToast.jsx";
+
+const MAX_GRANTS = 10;
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -33,19 +35,58 @@ export default function Dashboard() {
 
   const { showToast, ToastComponent } = useToast();
 
+  // ── Progress state ────────────────────────────────────────────────────
+  const [progressCount, setProgressCount] = useState(0);
+  const [showColdStart, setShowColdStart] = useState(false);
+  const intervalRef = useRef(null);
+  const coldStartRef = useRef(null);
+
+  const startProgress = () => {
+    setProgressCount(0);
+    setShowColdStart(false);
+
+    // Show cold-start warning after 8 seconds
+    coldStartRef.current = setTimeout(() => setShowColdStart(true), 8000);
+
+    // Simulate progress counter
+    let count = 0;
+    intervalRef.current = setInterval(() => {
+      count += 1;
+      if (count <= MAX_GRANTS) setProgressCount(count);
+    }, 3000);
+  };
+
+  const stopProgress = () => {
+    clearInterval(intervalRef.current);
+    clearTimeout(coldStartRef.current);
+    setShowColdStart(false);
+    setProgressCount(0);
+  };
+
   // ── Matching mutation ─────────────────────────────────────────────────
   const matching = useMutation({
     mutationFn: () => matchesApi.generate(orgId),
+    onMutate: () => startProgress(),
     onSuccess: (data) => {
+      stopProgress();
       showToast(
         `Matching complete! ${data.matched} matches found from ${data.processed} grants.`,
         "success"
       );
     },
     onError: () => {
+      stopProgress();
       showToast("Failed to match grants. Please try again.", "error");
     },
   });
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      clearInterval(intervalRef.current);
+      clearTimeout(coldStartRef.current);
+    };
+  }, []);
 
   // ── Loading state ─────────────────────────────────────────────────────
   if (!orgId) return null;
@@ -62,7 +103,6 @@ export default function Dashboard() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <Card className="max-w-md text-center">
-          <AlertCircle className="h-10 w-10 text-red-500 mx-auto mb-3" />
           <p className="text-navy-700 font-medium">Failed to load organization data.</p>
           <p className="text-sm text-slate-500 mt-1">Please check your connection and try again.</p>
         </Card>
@@ -114,7 +154,9 @@ export default function Dashboard() {
                 <h2 className="text-lg font-semibold text-navy-900">
                   AI Grant Matching
                 </h2>
-                <Badge variant="new">Gemini-Powered</Badge>
+                <Badge variant="new">
+                  <Zap className="h-3 w-3" /> Groq-Powered
+                </Badge>
               </div>
               <p className="text-sm text-navy-500 leading-relaxed">
                 Our AI analyzes your mission, focus areas, and goals against
@@ -132,14 +174,28 @@ export default function Dashboard() {
                 onClick={() => matching.mutate()}
               >
                 {matching.isPending
-                  ? "AI is analyzing grants..."
+                  ? progressCount > 0
+                    ? `Analyzing grant ${progressCount} of ${MAX_GRANTS}...`
+                    : "Starting AI engine..."
                   : "Run AI Matching Engine"}
               </Button>
             </div>
           </div>
+
+          {/* Cold-start warning */}
+          {matching.isPending && showColdStart && (
+            <div className="mt-4 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 flex items-center gap-3">
+              <Clock className="h-4 w-4 text-amber-600 flex-shrink-0" />
+              <p className="text-sm text-amber-800">
+                <span className="font-semibold">AI is waking up.</span>{" "}
+                Free-tier hosting has a ~50 second cold start. This is a
+                hosting limitation, not a bug — it'll speed up shortly.
+              </p>
+            </div>
+          )}
         </Card>
 
-        {/* Quick Stats (placeholder for future use) */}
+        {/* Quick Stats */}
         <div className="mt-8 grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Card>
             <p className="text-sm text-slate-500">Focus Areas</p>

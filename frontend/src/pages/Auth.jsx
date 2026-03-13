@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { signUp, signIn } from "../supabase";
 import { orgApi } from "../api";
 import Button from "../components/ui/Button";
 import Card   from "../components/ui/Card";
+import { Clock } from "lucide-react";
 
 export default function Auth() {
   const navigate = useNavigate();
@@ -13,6 +14,19 @@ export default function Auth() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState(null);
+  const [showColdStart, setShowColdStart] = useState(false);
+  const coldStartRef = useRef(null);
+
+  // Show cold-start warning after 5s of loading
+  useEffect(() => {
+    if (loading) {
+      coldStartRef.current = setTimeout(() => setShowColdStart(true), 5000);
+    } else {
+      clearTimeout(coldStartRef.current);
+      setShowColdStart(false);
+    }
+    return () => clearTimeout(coldStartRef.current);
+  }, [loading]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -121,6 +135,17 @@ export default function Auth() {
                            transition-colors"
               />
             </div>
+
+            {/* Cold-start warning */}
+            {loading && showColdStart && (
+              <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 flex items-center gap-3">
+                <Clock className="h-4 w-4 text-amber-600 flex-shrink-0" />
+                <p className="text-sm text-amber-800">
+                  <span className="font-semibold">Server is waking up.</span>{" "}
+                  Free-tier hosting has a ~50s cold start — hang tight!
+                </p>
+              </div>
+            )}
 
             {/* Error */}
             {error && (
